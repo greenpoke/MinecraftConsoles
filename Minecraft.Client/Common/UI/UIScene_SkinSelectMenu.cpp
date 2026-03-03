@@ -788,12 +788,12 @@ void UIScene_SkinSelectMenu::handleSkinIndexChanged()
 
 	if (m_packIndex == SKIN_SELECT_PACK_DEFAULT && m_bUsingCustomSkin)
 	{
-		m_labelSkinOrigin.setLabel(L"X: Custom Skin"); // Muestra la ayuda visual
+		m_labelSkinOrigin.setLabel(L"X: Custom Skin"); // Show visual help
 	}
 
 	if (m_selectedSkinPath.compare(m_currentSkinPath) == 0)
 	{
-		setCharacterSelected(true); // Activa el icono de seleccionado
+		setCharacterSelected(true); // Activates the selected icon automatically
 	}
 
 
