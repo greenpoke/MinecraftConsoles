@@ -8,7 +8,7 @@
 #include <message_dialog.h>
 #endif
 #include <fstream>
-#include <commdlg.h> // Necesario para GetOpenFileNameW
+#include <commdlg.h> // Required for GetOpenFileNameW
 
 #define SKIN_SELECT_PACK_DEFAULT 0
 #define SKIN_SELECT_PACK_FAVORITES 1
