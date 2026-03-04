@@ -55,7 +55,45 @@ UIScene_SkinSelectMenu::UIScene_SkinSelectMenu(int iPad, void *initData, UILayer
 	m_bSlidingSkins = false;
 	m_bAnimatingMove = false;
 	m_bSkinIndexChanged = false;
-	m_bUsingCustomSkin = (!GET_IS_DLC_SKIN_FROM_BITMASK(m_originalSkinId) && GET_UGC_SKIN_ID_FROM_BITMASK(m_originalSkinId) != 0);
+
+	m_customSkinTextureName = L"";
+	m_bUsingCustomSkin = false;
+
+	// --- PERSISTENCE: Check for existing custom skin on disk ---
+	wstring username = ProfileManager.GetDisplayName(iPad);
+	if (username.empty()) username = L"default";
+	WCHAR skinPath[MAX_PATH];
+	swprintf(skinPath, 256, L"CustomSkin\\custom_skin_%ls.png", username.c_str());
+
+	std::ifstream file(skinPath, std::ios::binary | std::ios::ate);
+	if (file.is_open())
+	{
+		std::streamsize size = file.tellg();
+		if (size > 0 && size <= 2 * 1024 * 1024)
+		{
+			file.seekg(0, std::ios::beg);
+			PBYTE buffer = new (std::nothrow) BYTE[(size_t)size];
+			if (buffer && file.read((char*)buffer, size))
+			{
+				static int s_persistentLoadCount = 0;
+				s_persistentLoadCount++;
+				wchar_t nameBuf[256];
+				swprintf(nameBuf, 256, L"ugcskin%08X.png", 0x300 + (s_persistentLoadCount << 5));
+				m_customSkinTextureName = nameBuf;
+				app.AddMemoryTextureFile(m_customSkinTextureName, buffer, (DWORD)size);
+				m_bUsingCustomSkin = true;
+			}
+			else if (buffer) delete[] buffer;
+		}
+		file.close();
+	}
+
+	// If the player is already wearing a custom skin, override with the current one
+	if (!GET_IS_DLC_SKIN_FROM_BITMASK(m_originalSkinId) && GET_UGC_SKIN_ID_FROM_BITMASK(m_originalSkinId) != 0)
+	{
+		m_customSkinTextureName = m_currentSkinPath;
+		m_bUsingCustomSkin = true;
+	}
 
 	m_currentNavigation = eSkinNavigation_Skin;
 
@@ -229,7 +267,8 @@ void UIScene_SkinSelectMenu::handleInput(int iPad, int key, bool repeat, bool pr
 		}
 		break;
 	case ACTION_MENU_X:
-		if (pressed && !repeat)
+		// Only allow changing the external skin if we are on the first slot of the default pack
+		if (pressed && !repeat && m_packIndex == SKIN_SELECT_PACK_DEFAULT && m_skinIndex == 0)
 		{
 			LoadExternalSkin();
 			handled = true;
@@ -276,7 +315,6 @@ void UIScene_SkinSelectMenu::handleInput(int iPad, int key, bool repeat, bool pr
 					m_skinIndex = getPreviousSkinIndex(m_skinIndex);
 					//handleSkinIndexChanged();
 
-					m_bUsingCustomSkin = false;
 					m_bSlidingSkins = true;
 					m_bAnimatingMove = true;
 
@@ -312,7 +350,6 @@ void UIScene_SkinSelectMenu::handleInput(int iPad, int key, bool repeat, bool pr
 					m_skinIndex = getNextSkinIndex(m_skinIndex);
 					//handleSkinIndexChanged();
 
-					m_bUsingCustomSkin = false;
 					m_bSlidingSkins = true;
 					m_bAnimatingMove = true;
 
@@ -415,14 +452,22 @@ void UIScene_SkinSelectMenu::InputActionOK(unsigned int iPad)
 {
 	ui.AnimateKeyPress(iPad, ACTION_MENU_OK, false, true, false);
 
-	if (m_bUsingCustomSkin)
+	// If we are specifically on the custom skin slot (0) and we have a custom skin loaded,
+	// apply it and set the active flag to true.
+	if (!m_customSkinTextureName.empty() && m_packIndex == SKIN_SELECT_PACK_DEFAULT && m_skinIndex == 0)
 	{
 		ui.PlayUISFX(eSFX_Press);
+		app.SetPlayerSkin(iPad, m_customSkinTextureName);
 		m_currentSkinPath = app.GetPlayerSkinName(iPad);
 		m_originalSkinId = app.GetPlayerSkinId(iPad);
+		m_bUsingCustomSkin = true;
 		setCharacterSelected(true);
 		return;
 	}
+
+	// If the user selects a DIFFERENT skin (DLC, Default, etc.), clear the active flag 
+	// but KEEP m_customSkinTextureName so it stays in the menu.
+	m_bUsingCustomSkin = false;
 
 	// if the profile data has been changed, then force a profile write
 	// It seems we're allowed to break the 5 minute rule if it's the result of a user action
@@ -668,14 +713,23 @@ void UIScene_SkinSelectMenu::handleSkinIndexChanged()
 
 	m_controlSkinNamePlate.setVisible( false );
 
-	if (m_bUsingCustomSkin)
+	// --- PERSISTENCE: Custom Skin UI Display ---
+	// Show the "Custom Skin" info if we have a custom skin loaded and are on slot 0.
+	if (!m_customSkinTextureName.empty() && m_packIndex == SKIN_SELECT_PACK_DEFAULT && m_skinIndex == 0)
 	{
-		m_selectedSkinPath = m_currentSkinPath;
+		m_selectedSkinPath = m_customSkinTextureName;
 		m_selectedCapePath = L"";
 		m_vAdditionalSkinBoxes = NULL;
 		skinName = L"Custom Skin";
 		skinOrigin = L"External PNG";
-		setCharacterSelected(true);
+		
+		// If the player is currently wearing THE custom skin, show the checkmark.
+		// We use m_currentSkinPath (what the player is actually wearing) to decide.
+		if (m_selectedSkinPath.compare(app.GetPlayerSkinName(m_iPad)) == 0)
+		{
+			setCharacterSelected(true);
+		}
+
 		setCharacterLocked(false);
 		m_characters[eCharacter_Current].setVisible(true);
 		m_controlSkinNamePlate.setVisible(true);
@@ -786,11 +840,6 @@ void UIScene_SkinSelectMenu::handleSkinIndexChanged()
 	m_labelSkinName.setLabel(skinName);
 	m_labelSkinOrigin.setLabel(skinOrigin);
 
-	if (m_packIndex == SKIN_SELECT_PACK_DEFAULT && m_bUsingCustomSkin)
-	{
-		m_labelSkinOrigin.setLabel(L"X: Custom Skin"); // Display visual aid for custom skin
-	}
-
 	if (m_selectedSkinPath.compare(m_currentSkinPath) == 0)
 	{
 		setCharacterSelected(true); // Enable selection checkmark
@@ -888,7 +937,15 @@ void UIScene_SkinSelectMenu::handleSkinIndexChanged()
 				switch(m_packIndex)
 				{
 				case SKIN_SELECT_PACK_DEFAULT:
-					backupTexture = getTextureId(nextIndex);
+					if (nextIndex == 0 && !m_customSkinTextureName.empty())
+					{
+						otherSkinPath = m_customSkinTextureName;
+						backupTexture = TN_MOB_CHAR;
+					}
+					else
+					{
+						backupTexture = getTextureId(nextIndex);
+					}
 					break;
 				case SKIN_SELECT_PACK_FAVORITES:
 					if(uiCurrentFavoriteC>0)
@@ -959,7 +1016,15 @@ void UIScene_SkinSelectMenu::handleSkinIndexChanged()
 				switch(m_packIndex)
 				{
 				case SKIN_SELECT_PACK_DEFAULT:
-					backupTexture = getTextureId(previousIndex);
+					if (previousIndex == 0 && !m_customSkinTextureName.empty())
+					{
+						otherSkinPath = m_customSkinTextureName;
+						backupTexture = TN_MOB_CHAR;
+					}
+					else
+					{
+						backupTexture = getTextureId(previousIndex);
+					}
 					break;
 				case SKIN_SELECT_PACK_FAVORITES:
 					if(uiCurrentFavoriteC>0)
@@ -1847,11 +1912,27 @@ void UIScene_SkinSelectMenu::LoadExternalSkin()
                     // 1. Add texture data to the in-memory filesystem
                     app.AddMemoryTextureFile(textureName, persistentBuffer, (DWORD)size);
                     
+                    // --- PERSISTENCE: Save the custom skin to disk ---
+                    // Create the 'CustomSkin' directory if it doesn't exist, and save as 'custom_skin_%username%.png'
+                    CreateDirectoryW(L"CustomSkin", NULL);
+                    wstring username = ProfileManager.GetDisplayName(m_iPad);
+                    if (username.empty()) username = L"default";
+                    WCHAR skinPath[MAX_PATH];
+                    swprintf(skinPath, 256, L"CustomSkin\\custom_skin_%ls.png", username.c_str());
+                    
+                    std::ofstream outFile(skinPath, std::ios::binary);
+                    if (outFile.is_open())
+                    {
+                        outFile.write((char*)persistentBuffer, size);
+                        outFile.close();
+                    }
+                    
                     // 2. Apply the skin path to the local player character
                     app.SetPlayerSkin(m_iPad, textureName);
 
                     // 3. Force UI refresh and update internal state
                     m_bUsingCustomSkin = true;
+                    m_customSkinTextureName = textureName;
                     m_selectedSkinPath = textureName;
                     m_currentSkinPath = textureName;
                     m_selectedCapePath = L""; 

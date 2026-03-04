@@ -1,5 +1,6 @@
 ﻿
 #include "stdafx.h"
+#include <fstream>
 #include "..\..\Minecraft.World\net.minecraft.world.entity.item.h"
 #include "..\..\Minecraft.World\net.minecraft.world.entity.player.h"
 #include "..\..\Minecraft.World\net.minecraft.world.level.tile.entity.h"
@@ -59,9 +60,6 @@
 #else
 #include "UI\UI.h"
 #include "UI\UIScene_PauseMenu.h"
-#endif
-#ifdef __PS3__
-#include <sys/tty.h>
 #endif
 #ifdef __ORBIS__
 #include <save_data_dialog.h>
@@ -9344,6 +9342,43 @@ wstring CMinecraftApp::getSkinPathFromId(DWORD skinId)
 		else
 		{
 			swprintf(chars, 256, L"ugcskin%08X.png",ugcSkinIndex);
+
+			// --- PERSISTENCE: Check if we need to load this skin from disk ---
+			// Iterate through all possible active players (max 4) to find if this skin belongs to one of them.
+			for (int i = 0; i < 4; ++i)
+			{
+				if (ProfileManager.IsSignedIn(i)) // Check if player is signed in
+				{
+					wstring username = ProfileManager.GetDisplayName(i);
+					if (username.empty()) username = L"default";
+
+					WCHAR expectedSkinPath[MAX_PATH];
+					swprintf(expectedSkinPath, 256, L"CustomSkin\\custom_skin_%ls.png", username.c_str());
+
+					// If the file is not already in memory textures, load it.
+					// Note: app.IsFileInMemoryTextures check is internal to app.AddMemoryTextureFile normally,
+					// but we check here to avoid redundant file I/O.
+					if (!app.IsFileInMemoryTextures(chars))
+					{
+						std::ifstream file(expectedSkinPath, std::ios::binary | std::ios::ate);
+						if (file.is_open())
+						{
+							std::streamsize size = file.tellg();
+							if (size > 0 && size <= 2 * 1024 * 1024)
+							{
+								file.seekg(0, std::ios::beg);
+								PBYTE buffer = new (std::nothrow) BYTE[(size_t)size];
+								if (buffer && file.read((char*)buffer, size))
+								{
+									app.AddMemoryTextureFile(chars, buffer, (DWORD)size);
+								}
+								else if (buffer) delete[] buffer;
+							}
+							file.close();
+						}
+					}
+				}
+			}
 		}
 	}
 	return chars;

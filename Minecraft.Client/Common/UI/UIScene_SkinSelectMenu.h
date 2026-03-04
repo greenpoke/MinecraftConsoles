@@ -102,7 +102,7 @@ private:
 	DLCPack *m_currentPack;
 	DWORD m_packIndex, m_skinIndex;
 	DWORD m_originalSkinId;
-	wstring m_currentSkinPath, m_selectedSkinPath, m_selectedCapePath;
+	wstring m_currentSkinPath, m_selectedSkinPath, m_selectedCapePath, m_customSkinTextureName;
 	vector<SKIN_BOX *> *m_vAdditionalSkinBoxes;
 
 	bool m_bSlidingSkins, m_bAnimatingMove;
